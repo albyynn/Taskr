@@ -2,20 +2,36 @@ import { Task } from './types';
 
 export const requestNotificationPermission = async (): Promise<boolean> => {
   if (!('Notification' in window)) {
-    console.log('Notifications not supported');
+    console.error('Notifications not supported in this browser');
+    return false;
+  }
+
+  // Check if we're in an iframe
+  const isInIframe = window.self !== window.top;
+  if (isInIframe) {
+    console.error('Notification permissions cannot be requested from within an iframe');
     return false;
   }
 
   if (Notification.permission === 'granted') {
+    console.log('Notification permission already granted');
     return true;
   }
 
-  if (Notification.permission !== 'denied') {
-    const permission = await Notification.requestPermission();
-    return permission === 'granted';
+  if (Notification.permission === 'denied') {
+    console.error('Notification permission was previously denied');
+    return false;
   }
 
-  return false;
+  try {
+    console.log('Requesting notification permission...');
+    const permission = await Notification.requestPermission();
+    console.log('Notification permission result:', permission);
+    return permission === 'granted';
+  } catch (error) {
+    console.error('Error requesting notification permission:', error);
+    return false;
+  }
 };
 
 export const scheduleNotification = (task: Task): void => {

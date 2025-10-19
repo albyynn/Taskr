@@ -11,6 +11,7 @@ import { SettingsDialog } from '@/components/SettingsDialog';
 import { InstallPrompt } from '@/components/InstallPrompt';
 import { Button } from '@/components/ui/button';
 import { Plus, Settings as SettingsIcon, Bell, BellOff } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -19,6 +20,7 @@ export default function Home() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [isRequesting, setIsRequesting] = useState(false);
 
   // Load tasks and check for daily reset
   useEffect(() => {
@@ -73,12 +75,49 @@ export default function Home() {
   }, [tasks]);
 
   const handleRequestNotification = async () => {
-    const granted = await requestNotificationPermission();
-    if (granted) {
-      setNotificationPermission('granted');
-      const updatedSettings = { ...settings, notificationsEnabled: true };
-      setSettings(updatedSettings);
-      storage.saveSettings(updatedSettings);
+    if (isRequesting) return;
+    
+    setIsRequesting(true);
+    
+    // Check if in iframe
+    const isInIframe = window.self !== window.top;
+    if (isInIframe) {
+      toast.error('Cannot enable notifications in preview mode. Please open the app in a new tab or install it to your home screen.');
+      setIsRequesting(false);
+      return;
+    }
+
+    // Check if notifications are supported
+    if (!('Notification' in window)) {
+      toast.error('Notifications are not supported in your browser.');
+      setIsRequesting(false);
+      return;
+    }
+
+    // Check if already denied
+    if (Notification.permission === 'denied') {
+      toast.error('Notification permission was denied. Please enable notifications in your browser settings.');
+      setIsRequesting(false);
+      return;
+    }
+
+    try {
+      const granted = await requestNotificationPermission();
+      
+      if (granted) {
+        setNotificationPermission('granted');
+        const updatedSettings = { ...settings, notificationsEnabled: true };
+        setSettings(updatedSettings);
+        storage.saveSettings(updatedSettings);
+        toast.success('Notifications enabled! You\'ll receive reminders for your tasks.');
+      } else {
+        toast.error('Notification permission was denied. Please try again or check your browser settings.');
+      }
+    } catch (error) {
+      console.error('Error requesting notifications:', error);
+      toast.error('Failed to enable notifications. Please try again.');
+    } finally {
+      setIsRequesting(false);
     }
   };
 
@@ -188,7 +227,7 @@ export default function Home() {
                 <p className="text-sm text-muted-foreground mb-3">
                   Get reminders for your tasks at the right time
                 </p>
-                <Button size="sm" onClick={handleRequestNotification}>
+                <Button size="sm" onClick={handleRequestNotification} disabled={isRequesting}>
                   <Bell className="w-4 h-4 mr-2" />
                   Enable Notifications
                 </Button>
