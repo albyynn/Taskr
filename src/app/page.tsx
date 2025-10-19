@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Task, Settings } from '@/lib/types';
 import { storage } from '@/lib/storage';
-import { requestNotificationPermission, scheduleAllNotifications } from '@/lib/notifications';
+import { requestNotificationPermission, scheduleAllNotifications, checkMissedNotifications } from '@/lib/notifications';
 import { shouldResetCompletedTasks, resetDailyTasks, shouldShowTask, sortTasksByTime } from '@/lib/taskUtils';
 import { TaskItem } from '@/components/TaskItem';
 import { AddTaskDialog } from '@/components/AddTaskDialog';
@@ -43,6 +43,9 @@ export default function Home() {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
+
+    // Check for missed notifications on startup
+    checkMissedNotifications(loadedTasks);
   }, []);
 
   // Apply dark mode
@@ -60,6 +63,117 @@ export default function Home() {
       scheduleAllNotifications(tasks);
     }
   }, [tasks, settings.notificationsEnabled, notificationPermission]);
+
+  // Periodic notification check via service worker - runs every 30 seconds
+  useEffect(() => {
+    if (!settings.notificationsEnabled || notificationPermission !== 'granted') return;
+
+    const checkNotifications = async () => {
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        const activeTasks = tasks.filter(t => t.enabled && !t.completed);
+        navigator.serviceWorker.controller.postMessage({
+          type: 'CHECK_NOTIFICATIONS',
+          tasks: activeTasks,
+        });
+      }
+
+      // Also check directly in the page for immediate response
+      const now = new Date();
+      tasks.forEach(task => {
+        if (!task.enabled || task.completed) return;
+
+        const [hours, minutes] = task.time.split(':').map(Number);
+        const scheduledTime = new Date();
+        scheduledTime.setHours(hours, minutes, 0, 0);
+
+        const timeDiff = now.getTime() - scheduledTime.getTime();
+        
+        // If within 1 minute of scheduled time
+        if (timeDiff >= 0 && timeDiff < 60000) {
+          // Check if we already showed this notification today
+          const notificationKey = `notified_${task.id}_${scheduledTime.toDateString()}`;
+          const alreadyNotified = sessionStorage.getItem(notificationKey);
+          
+          if (!alreadyNotified && Notification.permission === 'granted') {
+            showBrowserNotification(task);
+            sessionStorage.setItem(notificationKey, 'true');
+          }
+        }
+      });
+    };
+
+    // Check immediately
+    checkNotifications();
+
+    // Then check every 30 seconds
+    const interval = setInterval(checkNotifications, 30000);
+
+    return () => clearInterval(interval);
+  }, [tasks, settings.notificationsEnabled, notificationPermission]);
+
+  // Function to show browser notification with vibration
+  const showBrowserNotification = async (task: Task) => {
+    try {
+      // Vibrate device if enabled
+      if (task.vibration && 'vibrate' in navigator) {
+        navigator.vibrate([200, 100, 200, 100, 200, 100, 400]);
+      }
+
+      // Play sound if enabled
+      if (task.notificationSound) {
+        playNotificationSound();
+      }
+
+      // Show notification
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification(`⏰ ${task.title}`, {
+          body: `Time for: ${task.title}`,
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          tag: task.id,
+          requireInteraction: true,
+          vibrate: task.vibration ? [200, 100, 200, 100, 200] : undefined,
+          silent: !task.notificationSound,
+          data: { taskId: task.id, url: window.location.origin },
+        });
+      } else {
+        new Notification(`⏰ ${task.title}`, {
+          body: `Time for: ${task.title}`,
+          icon: '/icon-192.png',
+          tag: task.id,
+          requireInteraction: true,
+        });
+      }
+
+      console.log(`Notification shown for task: ${task.title}`);
+    } catch (error) {
+      console.error('Error showing notification:', error);
+    }
+  };
+
+  // Play notification sound
+  const playNotificationSound = () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    } catch (error) {
+      console.error('Error playing sound:', error);
+    }
+  };
 
   // Check for midnight reset
   useEffect(() => {
