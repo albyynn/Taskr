@@ -1,23 +1,6 @@
 import { Task } from './types';
-import { LocalNotifications } from '@capacitor/local-notifications';
-import { Haptics, ImpactStyle } from '@capacitor/haptics';
-import { Capacitor } from '@capacitor/core';
-
-const isNative = Capacitor.isNativePlatform();
 
 export const requestNotificationPermission = async (): Promise<boolean> => {
-  // Use Capacitor native notifications if available
-  if (isNative) {
-    try {
-      const result = await LocalNotifications.requestPermissions();
-      return result.display === 'granted';
-    } catch (error) {
-      console.error('Error requesting native notification permission:', error);
-      return false;
-    }
-  }
-
-  // Fallback to web notifications
   if (!('Notification' in window)) {
     console.error('Notifications not supported in this browser');
     return false;
@@ -48,15 +31,6 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
 };
 
 export const checkNotificationPermission = async (): Promise<boolean> => {
-  if (isNative) {
-    try {
-      const result = await LocalNotifications.checkPermissions();
-      return result.display === 'granted';
-    } catch (error) {
-      return false;
-    }
-  }
-
   return 'Notification' in window && Notification.permission === 'granted';
 };
 
@@ -78,32 +52,14 @@ export const scheduleNotification = async (task: Task): Promise<void> => {
       scheduledTime.setDate(scheduledTime.getDate() + 1);
     }
 
-    if (isNative) {
-      // Use Capacitor Local Notifications for native platforms
-      await LocalNotifications.schedule({
-        notifications: [{
-          id: parseInt(task.id),
-          title: `⏰ ${task.title}`,
-          body: `Time for: ${task.title}`,
-          schedule: { at: scheduledTime },
-          sound: task.notificationSound ? 'beep.wav' : undefined,
-          smallIcon: 'ic_stat_icon_config_sample',
-          extra: { taskId: task.id },
-        }]
-      });
+    const timeUntilNotification = scheduledTime.getTime() - now.getTime();
+    
+    if (timeUntilNotification > 0) {
+      setTimeout(async () => {
+        await showWebNotification(task);
+      }, timeUntilNotification);
 
-      console.log(`Native notification scheduled for task "${task.title}" at ${scheduledTime.toLocaleTimeString()}`);
-    } else {
-      // Web notification scheduling
-      const timeUntilNotification = scheduledTime.getTime() - now.getTime();
-      
-      if (timeUntilNotification > 0) {
-        setTimeout(async () => {
-          await showWebNotification(task);
-        }, timeUntilNotification);
-
-        console.log(`Web notification scheduled for task "${task.title}" in ${Math.round(timeUntilNotification / 1000 / 60)} minutes`);
-      }
+      console.log(`Notification scheduled for task "${task.title}" in ${Math.round(timeUntilNotification / 1000 / 60)} minutes`);
     }
   } catch (error) {
     console.error('Error scheduling notification:', error);
@@ -112,6 +68,16 @@ export const scheduleNotification = async (task: Task): Promise<void> => {
 
 const showWebNotification = async (task: Task): Promise<void> => {
   try {
+    // Vibrate device if enabled
+    if (task.vibration && 'vibrate' in navigator) {
+      navigator.vibrate([200, 100, 200, 100, 200]);
+    }
+
+    // Play sound if enabled
+    if (task.notificationSound) {
+      playNotificationSound();
+    }
+
     if ('serviceWorker' in navigator) {
       const registration = await navigator.serviceWorker.ready;
       await registration.showNotification(`⏰ ${task.title}`, {
@@ -132,24 +98,15 @@ const showWebNotification = async (task: Task): Promise<void> => {
         requireInteraction: true,
       });
     }
+
+    console.log(`Notification shown for task: ${task.title}`);
   } catch (error) {
     console.error('Error showing web notification:', error);
   }
 };
 
 export const vibrateDevice = async (pattern?: number[]): Promise<void> => {
-  if (isNative) {
-    try {
-      // Haptics API for native platforms
-      await Haptics.impact({ style: ImpactStyle.Heavy });
-      // Repeat for stronger effect
-      setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 200);
-      setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 400);
-    } catch (error) {
-      console.error('Error vibrating device:', error);
-    }
-  } else if ('vibrate' in navigator) {
-    // Web Vibration API
+  if ('vibrate' in navigator) {
     navigator.vibrate(pattern || [200, 100, 200, 100, 200, 100, 400]);
   }
 };
@@ -177,15 +134,6 @@ export const playNotificationSound = (): void => {
 };
 
 export const scheduleAllNotifications = async (tasks: Task[]): Promise<void> => {
-  if (isNative) {
-    // Cancel all existing notifications first
-    try {
-      await LocalNotifications.cancel({ notifications: await LocalNotifications.getPending() });
-    } catch (error) {
-      console.error('Error canceling notifications:', error);
-    }
-  }
-
   // Schedule new notifications
   for (const task of tasks) {
     if (task.enabled && !task.completed) {
@@ -195,22 +143,11 @@ export const scheduleAllNotifications = async (tasks: Task[]): Promise<void> => 
 };
 
 export const cancelNotification = async (taskId: string): Promise<void> => {
-  if (isNative) {
-    try {
-      await LocalNotifications.cancel({
-        notifications: [{ id: parseInt(taskId) }]
-      });
-    } catch (error) {
-      console.error('Error canceling notification:', error);
-    }
-  }
+  // Web notifications are cleared automatically
 };
 
 // Check for missed notifications on app startup
 export const checkMissedNotifications = async (tasks: Task[]): Promise<void> => {
-  // On native platforms, notifications are handled by the OS
-  if (isNative) return;
-
   const now = new Date();
   
   for (const task of tasks) {

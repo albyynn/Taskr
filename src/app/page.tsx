@@ -19,10 +19,6 @@ import { InstallPrompt } from '@/components/InstallPrompt';
 import { Button } from '@/components/ui/button';
 import { Plus, Settings as SettingsIcon, Bell, BellOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { LocalNotifications } from '@capacitor/local-notifications';
-import { Capacitor } from '@capacitor/core';
-
-const isNative = Capacitor.isNativePlatform();
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -45,61 +41,17 @@ export default function Home() {
       setTasks(loadedTasks);
     }
 
-    // Register service worker for web platform
-    if (!isNative && 'serviceWorker' in navigator) {
+    // Register service worker
+    if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error);
     }
 
     // Check notification permission
     checkNotificationPermission().then(setHasNotificationPermission);
 
-    // Check for missed notifications on startup (web only)
-    if (!isNative) {
-      checkMissedNotifications(loadedTasks);
-    }
+    // Check for missed notifications on startup
+    checkMissedNotifications(loadedTasks);
   }, []);
-
-  // Setup native notification listeners
-  useEffect(() => {
-    if (!isNative) return;
-
-    const setupListeners = async () => {
-      // Listen for notification actions
-      await LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
-        const taskId = notification.notification.extra?.taskId;
-        if (taskId) {
-          // Find and mark task as completed
-          const task = tasks.find(t => t.id === taskId);
-          if (task) {
-            vibrateDevice();
-            if (task.notificationSound) {
-              playNotificationSound();
-            }
-          }
-        }
-      });
-
-      // Listen for notification received (when app is in foreground)
-      await LocalNotifications.addListener('localNotificationReceived', (notification) => {
-        const taskId = notification.extra?.taskId;
-        const task = tasks.find(t => t.id === taskId);
-        if (task) {
-          if (task.vibration) {
-            vibrateDevice();
-          }
-          if (task.notificationSound) {
-            playNotificationSound();
-          }
-        }
-      });
-    };
-
-    setupListeners();
-
-    return () => {
-      LocalNotifications.removeAllListeners();
-    };
-  }, [tasks]);
 
   // Apply dark mode
   useEffect(() => {
@@ -117,9 +69,9 @@ export default function Home() {
     }
   }, [tasks, settings.notificationsEnabled, hasNotificationPermission]);
 
-  // Periodic notification check for web platform only
+  // Periodic notification check
   useEffect(() => {
-    if (isNative || !settings.notificationsEnabled || !hasNotificationPermission) return;
+    if (!settings.notificationsEnabled || !hasNotificationPermission) return;
 
     const checkNotifications = () => {
       const now = new Date();
@@ -213,28 +165,23 @@ export default function Home() {
     
     setIsRequesting(true);
     
-    // For web platform, check if in iframe
-    if (!isNative) {
-      const isInIframe = window.self !== window.top;
-      if (isInIframe) {
-        toast.error('Cannot enable notifications in preview mode. Please open the app in a new tab or install it to your home screen.');
-        setIsRequesting(false);
-        return;
-      }
+    const isInIframe = window.self !== window.top;
+    if (isInIframe) {
+      toast.error('Cannot enable notifications in preview mode. Please open the app in a new tab or install it to your home screen.');
+      setIsRequesting(false);
+      return;
+    }
 
-      // Check if notifications are supported
-      if (!('Notification' in window)) {
-        toast.error('Notifications are not supported in your browser.');
-        setIsRequesting(false);
-        return;
-      }
+    if (!('Notification' in window)) {
+      toast.error('Notifications are not supported in your browser.');
+      setIsRequesting(false);
+      return;
+    }
 
-      // Check if already denied
-      if (Notification.permission === 'denied') {
-        toast.error('Notification permission was denied. Please enable notifications in your browser settings.');
-        setIsRequesting(false);
-        return;
-      }
+    if (Notification.permission === 'denied') {
+      toast.error('Notification permission was denied. Please enable notifications in your browser settings.');
+      setIsRequesting(false);
+      return;
     }
 
     try {
