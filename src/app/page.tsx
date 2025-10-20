@@ -3,22 +3,18 @@
 import { useState, useEffect } from 'react';
 import { Task, Settings } from '@/lib/types';
 import { storage } from '@/lib/storage';
-import { 
-  requestNotificationPermission, 
-  checkNotificationPermission,
-  scheduleAllNotifications, 
-  checkMissedNotifications,
-  vibrateDevice,
-  playNotificationSound 
-} from '@/lib/notifications';
-import { shouldResetCompletedTasks, resetDailyTasks, shouldShowTask, sortTasksByTime } from '@/lib/taskUtils';
-import { TaskItem } from '@/components/TaskItem';
-import { AddTaskDialog } from '@/components/AddTaskDialog';
-import { SettingsDialog } from '@/components/SettingsDialog';
-import { InstallPrompt } from '@/components/InstallPrompt';
+// ... keep existing imports ...
 import { Button } from '@/components/ui/button';
 import { Plus, Settings as SettingsIcon, Bell, BellOff } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -28,6 +24,21 @@ export default function Home() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
+
+  // Check if we should show the permission dialog on load
+  useEffect(() => {
+    const hasAskedBefore = localStorage.getItem('hasAskedPermission');
+    const isInIframe = window.self !== window.top;
+    
+    // Only show if we haven't asked before, not in iframe, and don't have permission
+    if (!hasAskedBefore && !isInIframe && 'Notification' in window && Notification.permission === 'default') {
+      // Small delay to let the page load first
+      setTimeout(() => {
+        setShowPermissionDialog(true);
+      }, 1000);
+    }
+  }, []);
 
   // Load tasks and check for daily reset
   useEffect(() => {
@@ -192,6 +203,12 @@ export default function Home() {
         const updatedSettings = { ...settings, notificationsEnabled: true };
         setSettings(updatedSettings);
         storage.saveSettings(updatedSettings);
+        
+        // Test vibration
+        if ('vibrate' in navigator) {
+          navigator.vibrate(200);
+        }
+        
         toast.success('Notifications enabled! You\'ll receive reminders for your tasks.');
       } else {
         toast.error('Notification permission was denied. Please try again or check your settings.');
@@ -201,9 +218,23 @@ export default function Home() {
       toast.error('Failed to enable notifications. Please try again.');
     } finally {
       setIsRequesting(false);
+      // Mark that we've asked for permission
+      localStorage.setItem('hasAskedPermission', 'true');
     }
   };
 
+  const handlePermissionDialogAccept = async () => {
+    setShowPermissionDialog(false);
+    await handleRequestNotification();
+  };
+
+  const handlePermissionDialogDecline = () => {
+    setShowPermissionDialog(false);
+    localStorage.setItem('hasAskedPermission', 'true');
+    toast.info('You can enable notifications later from the banner above.');
+  };
+
+  // ... keep existing handler functions ...
   const handleAddTask = (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
     const newTask: Task = {
       ...taskData,
@@ -396,6 +427,57 @@ export default function Home() {
 
       {/* Install Prompt */}
       <InstallPrompt />
+
+      {/* Permission Request Dialog */}
+      <Dialog open={showPermissionDialog} onOpenChange={setShowPermissionDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-primary" />
+              Enable Notifications & Vibration
+            </DialogTitle>
+            <DialogDescription className="space-y-3 pt-2">
+              <p>
+                This app needs your permission to send you timely reminders for your daily tasks.
+              </p>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-start gap-2">
+                  <Bell className="w-4 h-4 mt-0.5 text-primary" />
+                  <div>
+                    <strong>Notifications:</strong> Get alerts when it's time for your tasks
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-lg mt-[-2px]">📳</span>
+                  <div>
+                    <strong>Vibration:</strong> Feel a gentle vibration with each reminder
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                You can change these settings anytime.
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={handlePermissionDialogDecline}
+              className="w-full sm:w-auto"
+            >
+              Not Now
+            </Button>
+            <Button
+              onClick={handlePermissionDialogAccept}
+              disabled={isRequesting}
+              className="w-full sm:w-auto"
+            >
+              <Bell className="w-4 h-4 mr-2" />
+              Allow Notifications
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
