@@ -1,6 +1,23 @@
 import { Task } from './types';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { Capacitor } from '@capacitor/core';
+
+const isNative = Capacitor.isNativePlatform();
 
 export const requestNotificationPermission = async (): Promise<boolean> => {
+  // Use Capacitor native notifications if available
+  if (isNative) {
+    try {
+      const result = await LocalNotifications.requestPermissions();
+      return result.display === 'granted';
+    } catch (error) {
+      console.error('Error requesting native notification permission:', error);
+      return false;
+    }
+  }
+
+  // Fallback to web notifications
   if (!('Notification' in window)) {
     console.error('Notifications not supported in this browser');
     return false;
@@ -13,7 +30,6 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
   }
 
   if (Notification.permission === 'granted') {
-    console.log('Notification permission already granted');
     return true;
   }
 
@@ -23,9 +39,7 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
   }
 
   try {
-    console.log('Requesting notification permission...');
     const permission = await Notification.requestPermission();
-    console.log('Notification permission result:', permission);
     return permission === 'granted';
   } catch (error) {
     console.error('Error requesting notification permission:', error);
@@ -33,90 +47,115 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
   }
 };
 
+export const checkNotificationPermission = async (): Promise<boolean> => {
+  if (isNative) {
+    try {
+      const result = await LocalNotifications.checkPermissions();
+      return result.display === 'granted';
+    } catch (error) {
+      return false;
+    }
+  }
+
+  return 'Notification' in window && Notification.permission === 'granted';
+};
+
 export const scheduleNotification = async (task: Task): Promise<void> => {
-  if (!task.enabled || Notification.permission !== 'granted') return;
+  if (!task.enabled) return;
+
+  const hasPermission = await checkNotificationPermission();
+  if (!hasPermission) return;
 
   try {
-    const registration = await navigator.serviceWorker.ready;
-    
     const now = new Date();
     const [hours, minutes] = task.time.split(':').map(Number);
     
-    const scheduledTime = new Date();
+    let scheduledTime = new Date();
     scheduledTime.setHours(hours, minutes, 0, 0);
 
-    // If time has passed today, schedule for tomorrow (for daily tasks)
-    if (scheduledTime <= now && task.recurrence === 'daily') {
+    // If time has passed today, schedule for tomorrow
+    if (scheduledTime <= now) {
       scheduledTime.setDate(scheduledTime.getDate() + 1);
     }
 
-    const timeUntilNotification = scheduledTime.getTime() - now.getTime();
+    if (isNative) {
+      // Use Capacitor Local Notifications for native platforms
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: parseInt(task.id),
+          title: `⏰ ${task.title}`,
+          body: `Time for: ${task.title}`,
+          schedule: { at: scheduledTime },
+          sound: task.notificationSound ? 'beep.wav' : undefined,
+          smallIcon: 'ic_stat_icon_config_sample',
+          extra: { taskId: task.id },
+        }]
+      });
 
-    if (timeUntilNotification > 0 && timeUntilNotification < 24 * 60 * 60 * 1000) {
-      // Store task data for service worker
-      const taskData = {
-        id: task.id,
-        title: task.title,
-        time: task.time,
-        scheduledTime: scheduledTime.getTime(),
-        vibration: task.vibration,
-        notificationSound: task.notificationSound,
-      };
+      console.log(`Native notification scheduled for task "${task.title}" at ${scheduledTime.toLocaleTimeString()}`);
+    } else {
+      // Web notification scheduling
+      const timeUntilNotification = scheduledTime.getTime() - now.getTime();
+      
+      if (timeUntilNotification > 0) {
+        setTimeout(async () => {
+          await showWebNotification(task);
+        }, timeUntilNotification);
 
-      // Store in IndexedDB or localStorage for service worker access
-      localStorage.setItem(`notification_${task.id}`, JSON.stringify(taskData));
-
-      // Schedule using setTimeout and also set up service worker check
-      setTimeout(async () => {
-        const storedTask = localStorage.getItem(`notification_${task.id}`);
-        if (storedTask) {
-          const parsedTask = JSON.parse(storedTask);
-          await showServiceWorkerNotification(parsedTask, registration);
-        }
-      }, timeUntilNotification);
-
-      console.log(`Scheduled notification for task "${task.title}" in ${Math.round(timeUntilNotification / 1000 / 60)} minutes`);
+        console.log(`Web notification scheduled for task "${task.title}" in ${Math.round(timeUntilNotification / 1000 / 60)} minutes`);
+      }
     }
   } catch (error) {
     console.error('Error scheduling notification:', error);
   }
 };
 
-const showServiceWorkerNotification = async (
-  taskData: { id: string; title: string; vibration?: boolean; notificationSound?: boolean },
-  registration: ServiceWorkerRegistration
-): Promise<void> => {
+const showWebNotification = async (task: Task): Promise<void> => {
   try {
-    const options: NotificationOptions = {
-      body: `Time for: ${taskData.title}`,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      tag: taskData.id,
-      requireInteraction: true,
-      vibrate: taskData.vibration ? [200, 100, 200, 100, 200] : undefined,
-      silent: !taskData.notificationSound,
-      data: {
-        taskId: taskData.id,
-        url: window.location.origin,
-      },
-    };
-
-    await registration.showNotification(`Reminder: ${taskData.title}`, options);
-    
-    // Play sound if enabled (fallback for browsers that don't support notification sounds)
-    if (taskData.notificationSound) {
-      playNotificationSound();
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification(`⏰ ${task.title}`, {
+        body: `Time for: ${task.title}`,
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag: task.id,
+        requireInteraction: true,
+        vibrate: task.vibration ? [200, 100, 200, 100, 200] : undefined,
+        silent: !task.notificationSound,
+        data: { taskId: task.id, url: window.location.origin },
+      });
+    } else {
+      new Notification(`⏰ ${task.title}`, {
+        body: `Time for: ${task.title}`,
+        icon: '/icon-192.png',
+        tag: task.id,
+        requireInteraction: true,
+      });
     }
-
-    console.log(`Showed notification for task: ${taskData.title}`);
   } catch (error) {
-    console.error('Error showing service worker notification:', error);
+    console.error('Error showing web notification:', error);
   }
 };
 
-const playNotificationSound = (): void => {
+export const vibrateDevice = async (pattern?: number[]): Promise<void> => {
+  if (isNative) {
+    try {
+      // Haptics API for native platforms
+      await Haptics.impact({ style: ImpactStyle.Heavy });
+      // Repeat for stronger effect
+      setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 200);
+      setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 400);
+    } catch (error) {
+      console.error('Error vibrating device:', error);
+    }
+  } else if ('vibrate' in navigator) {
+    // Web Vibration API
+    navigator.vibrate(pattern || [200, 100, 200, 100, 200, 100, 400]);
+  }
+};
+
+export const playNotificationSound = (): void => {
   try {
-    // Create a simple beep sound
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
@@ -133,36 +172,21 @@ const playNotificationSound = (): void => {
     oscillator.start(audioContext.currentTime);
     oscillator.stop(audioContext.currentTime + 0.5);
   } catch (error) {
-    console.error('Error playing notification sound:', error);
-  }
-};
-
-export const showNotification = async (task: Task): Promise<void> => {
-  if (Notification.permission !== 'granted') return;
-
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    await showServiceWorkerNotification({
-      id: task.id,
-      title: task.title,
-      vibration: task.vibration,
-      notificationSound: task.notificationSound,
-    }, registration);
-  } catch (error) {
-    console.error('Error showing notification:', error);
-    // Fallback to regular notification
-    const options: NotificationOptions = {
-      body: `Time for: ${task.title}`,
-      icon: '/icon-192.png',
-      tag: task.id,
-      requireInteraction: true,
-      vibrate: task.vibration ? [200, 100, 200, 100, 200] : undefined,
-    };
-    new Notification(`Reminder: ${task.title}`, options);
+    console.error('Error playing sound:', error);
   }
 };
 
 export const scheduleAllNotifications = async (tasks: Task[]): Promise<void> => {
+  if (isNative) {
+    // Cancel all existing notifications first
+    try {
+      await LocalNotifications.cancel({ notifications: await LocalNotifications.getPending() });
+    } catch (error) {
+      console.error('Error canceling notifications:', error);
+    }
+  }
+
+  // Schedule new notifications
   for (const task of tasks) {
     if (task.enabled && !task.completed) {
       await scheduleNotification(task);
@@ -170,8 +194,23 @@ export const scheduleAllNotifications = async (tasks: Task[]): Promise<void> => 
   }
 };
 
+export const cancelNotification = async (taskId: string): Promise<void> => {
+  if (isNative) {
+    try {
+      await LocalNotifications.cancel({
+        notifications: [{ id: parseInt(taskId) }]
+      });
+    } catch (error) {
+      console.error('Error canceling notification:', error);
+    }
+  }
+};
+
 // Check for missed notifications on app startup
 export const checkMissedNotifications = async (tasks: Task[]): Promise<void> => {
+  // On native platforms, notifications are handled by the OS
+  if (isNative) return;
+
   const now = new Date();
   
   for (const task of tasks) {
@@ -184,7 +223,7 @@ export const checkMissedNotifications = async (tasks: Task[]): Promise<void> => 
     // If the scheduled time was in the last 5 minutes, show notification
     const timeSinceScheduled = now.getTime() - scheduledTime.getTime();
     if (timeSinceScheduled > 0 && timeSinceScheduled < 5 * 60 * 1000) {
-      await showNotification(task);
+      await showWebNotification(task);
     }
   }
 };

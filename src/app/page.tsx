@@ -3,7 +3,14 @@
 import { useState, useEffect } from 'react';
 import { Task, Settings } from '@/lib/types';
 import { storage } from '@/lib/storage';
-import { requestNotificationPermission, scheduleAllNotifications, checkMissedNotifications } from '@/lib/notifications';
+import { 
+  requestNotificationPermission, 
+  checkNotificationPermission,
+  scheduleAllNotifications, 
+  checkMissedNotifications,
+  vibrateDevice,
+  playNotificationSound 
+} from '@/lib/notifications';
 import { shouldResetCompletedTasks, resetDailyTasks, shouldShowTask, sortTasksByTime } from '@/lib/taskUtils';
 import { TaskItem } from '@/components/TaskItem';
 import { AddTaskDialog } from '@/components/AddTaskDialog';
@@ -12,6 +19,10 @@ import { InstallPrompt } from '@/components/InstallPrompt';
 import { Button } from '@/components/ui/button';
 import { Plus, Settings as SettingsIcon, Bell, BellOff } from 'lucide-react';
 import { toast } from 'sonner';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor } from '@capacitor/core';
+
+const isNative = Capacitor.isNativePlatform();
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -19,7 +30,7 @@ export default function Home() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
 
   // Load tasks and check for daily reset
@@ -34,19 +45,61 @@ export default function Home() {
       setTasks(loadedTasks);
     }
 
-    // Register service worker
-    if ('serviceWorker' in navigator) {
+    // Register service worker for web platform
+    if (!isNative && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error);
     }
 
     // Check notification permission
-    if ('Notification' in window) {
-      setNotificationPermission(Notification.permission);
-    }
+    checkNotificationPermission().then(setHasNotificationPermission);
 
-    // Check for missed notifications on startup
-    checkMissedNotifications(loadedTasks);
+    // Check for missed notifications on startup (web only)
+    if (!isNative) {
+      checkMissedNotifications(loadedTasks);
+    }
   }, []);
+
+  // Setup native notification listeners
+  useEffect(() => {
+    if (!isNative) return;
+
+    const setupListeners = async () => {
+      // Listen for notification actions
+      await LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
+        const taskId = notification.notification.extra?.taskId;
+        if (taskId) {
+          // Find and mark task as completed
+          const task = tasks.find(t => t.id === taskId);
+          if (task) {
+            vibrateDevice();
+            if (task.notificationSound) {
+              playNotificationSound();
+            }
+          }
+        }
+      });
+
+      // Listen for notification received (when app is in foreground)
+      await LocalNotifications.addListener('localNotificationReceived', (notification) => {
+        const taskId = notification.extra?.taskId;
+        const task = tasks.find(t => t.id === taskId);
+        if (task) {
+          if (task.vibration) {
+            vibrateDevice();
+          }
+          if (task.notificationSound) {
+            playNotificationSound();
+          }
+        }
+      });
+    };
+
+    setupListeners();
+
+    return () => {
+      LocalNotifications.removeAllListeners();
+    };
+  }, [tasks]);
 
   // Apply dark mode
   useEffect(() => {
@@ -59,25 +112,16 @@ export default function Home() {
 
   // Schedule notifications
   useEffect(() => {
-    if (settings.notificationsEnabled && notificationPermission === 'granted') {
+    if (settings.notificationsEnabled && hasNotificationPermission) {
       scheduleAllNotifications(tasks);
     }
-  }, [tasks, settings.notificationsEnabled, notificationPermission]);
+  }, [tasks, settings.notificationsEnabled, hasNotificationPermission]);
 
-  // Periodic notification check via service worker - runs every 30 seconds
+  // Periodic notification check for web platform only
   useEffect(() => {
-    if (!settings.notificationsEnabled || notificationPermission !== 'granted') return;
+    if (isNative || !settings.notificationsEnabled || !hasNotificationPermission) return;
 
-    const checkNotifications = async () => {
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        const activeTasks = tasks.filter(t => t.enabled && !t.completed);
-        navigator.serviceWorker.controller.postMessage({
-          type: 'CHECK_NOTIFICATIONS',
-          tasks: activeTasks,
-        });
-      }
-
-      // Also check directly in the page for immediate response
+    const checkNotifications = () => {
       const now = new Date();
       tasks.forEach(task => {
         if (!task.enabled || task.completed) return;
@@ -90,12 +134,11 @@ export default function Home() {
         
         // If within 1 minute of scheduled time
         if (timeDiff >= 0 && timeDiff < 60000) {
-          // Check if we already showed this notification today
           const notificationKey = `notified_${task.id}_${scheduledTime.toDateString()}`;
           const alreadyNotified = sessionStorage.getItem(notificationKey);
           
-          if (!alreadyNotified && Notification.permission === 'granted') {
-            showBrowserNotification(task);
+          if (!alreadyNotified) {
+            showWebNotification(task);
             sessionStorage.setItem(notificationKey, 'true');
           }
         }
@@ -109,14 +152,14 @@ export default function Home() {
     const interval = setInterval(checkNotifications, 30000);
 
     return () => clearInterval(interval);
-  }, [tasks, settings.notificationsEnabled, notificationPermission]);
+  }, [tasks, settings.notificationsEnabled, hasNotificationPermission]);
 
-  // Function to show browser notification with vibration
-  const showBrowserNotification = async (task: Task) => {
+  // Function to show web notification with vibration
+  const showWebNotification = async (task: Task) => {
     try {
       // Vibrate device if enabled
-      if (task.vibration && 'vibrate' in navigator) {
-        navigator.vibrate([200, 100, 200, 100, 200, 100, 400]);
+      if (task.vibration) {
+        await vibrateDevice();
       }
 
       // Play sound if enabled
@@ -152,29 +195,6 @@ export default function Home() {
     }
   };
 
-  // Play notification sound
-  const playNotificationSound = () => {
-    try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-
-      oscillator.frequency.value = 800;
-      oscillator.type = 'sine';
-
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.5);
-    } catch (error) {
-      console.error('Error playing sound:', error);
-    }
-  };
-
   // Check for midnight reset
   useEffect(() => {
     const checkMidnight = setInterval(() => {
@@ -193,39 +213,41 @@ export default function Home() {
     
     setIsRequesting(true);
     
-    // Check if in iframe
-    const isInIframe = window.self !== window.top;
-    if (isInIframe) {
-      toast.error('Cannot enable notifications in preview mode. Please open the app in a new tab or install it to your home screen.');
-      setIsRequesting(false);
-      return;
-    }
+    // For web platform, check if in iframe
+    if (!isNative) {
+      const isInIframe = window.self !== window.top;
+      if (isInIframe) {
+        toast.error('Cannot enable notifications in preview mode. Please open the app in a new tab or install it to your home screen.');
+        setIsRequesting(false);
+        return;
+      }
 
-    // Check if notifications are supported
-    if (!('Notification' in window)) {
-      toast.error('Notifications are not supported in your browser.');
-      setIsRequesting(false);
-      return;
-    }
+      // Check if notifications are supported
+      if (!('Notification' in window)) {
+        toast.error('Notifications are not supported in your browser.');
+        setIsRequesting(false);
+        return;
+      }
 
-    // Check if already denied
-    if (Notification.permission === 'denied') {
-      toast.error('Notification permission was denied. Please enable notifications in your browser settings.');
-      setIsRequesting(false);
-      return;
+      // Check if already denied
+      if (Notification.permission === 'denied') {
+        toast.error('Notification permission was denied. Please enable notifications in your browser settings.');
+        setIsRequesting(false);
+        return;
+      }
     }
 
     try {
       const granted = await requestNotificationPermission();
       
       if (granted) {
-        setNotificationPermission('granted');
+        setHasNotificationPermission(true);
         const updatedSettings = { ...settings, notificationsEnabled: true };
         setSettings(updatedSettings);
         storage.saveSettings(updatedSettings);
         toast.success('Notifications enabled! You\'ll receive reminders for your tasks.');
       } else {
-        toast.error('Notification permission was denied. Please try again or check your browser settings.');
+        toast.error('Notification permission was denied. Please try again or check your settings.');
       }
     } catch (error) {
       console.error('Error requesting notifications:', error);
@@ -332,7 +354,7 @@ export default function Home() {
       {/* Main Content */}
       <main className="max-w-2xl mx-auto px-4 py-6">
         {/* Notification Permission Banner */}
-        {notificationPermission !== 'granted' && (
+        {!hasNotificationPermission && (
           <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 mb-6">
             <div className="flex items-start gap-3">
               <BellOff className="w-5 h-5 text-primary mt-0.5 shrink-0" />
