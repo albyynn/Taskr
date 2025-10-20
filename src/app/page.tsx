@@ -3,6 +3,19 @@
 import { useState, useEffect } from 'react';
 import { Task, Settings } from '@/lib/types';
 import { storage } from '@/lib/storage';
+import { shouldShowTask, sortTasksByTime, shouldResetCompletedTasks, resetDailyTasks } from '@/lib/task-utils';
+import {
+  requestNotificationPermission,
+  checkNotificationPermission,
+  scheduleAllNotifications,
+  vibrateDevice,
+  playNotificationSound,
+  checkMissedNotifications,
+} from '@/lib/notifications';
+import { TaskItem } from '@/components/TaskItem';
+import { AddTaskDialog } from '@/components/AddTaskDialog';
+import { SettingsDialog } from '@/components/SettingsDialog';
+import { InstallPrompt } from '@/components/InstallPrompt';
 // ... keep existing imports ...
 import { Button } from '@/components/ui/button';
 import { Plus, Settings as SettingsIcon, Bell, BellOff } from 'lucide-react';
