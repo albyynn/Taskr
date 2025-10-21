@@ -7,7 +7,7 @@ export interface AlarmSound {
 }
 
 export const ALARM_SOUNDS: AlarmSound[] = [
-  { id: 'alarm-1', name: 'Classic Alarm', filename: 'alarm-1.mp3' },
+  { id: 'alarm-1', name: 'funny Alarm', filename: 'funny-alarm.mp3' },
   { id: 'alarm-2', name: 'Gentle Chime', filename: 'alarm-2.mp3' },
   { id: 'alarm-3', name: 'Digital Beep', filename: 'alarm-3.mp3' },
   { id: 'alarm-4', name: 'Nature Sounds', filename: 'alarm-4.mp3' },
@@ -125,6 +125,7 @@ export class AlarmManager {
       if (this.currentAlarm) {
         this.currentAlarm.pause();
         this.currentAlarm.currentTime = 0;
+        this.currentAlarm = null;
       }
       
       this.currentAlarm = audio;
@@ -135,6 +136,7 @@ export class AlarmManager {
         if (this.currentAlarm === audio) {
           audio.pause();
           audio.currentTime = 0;
+          this.currentAlarm = null;
         }
       }, 30000);
 
@@ -225,6 +227,45 @@ export class AlarmManager {
    * Test alarm sound
    */
   public async testAlarmSound(soundId: string, volume: number = 0.5): Promise<void> {
-    await this.playAlarmSound(soundId, volume);
+    try {
+      const sound = ALARM_SOUNDS.find(s => s.id === soundId) || ALARM_SOUNDS[0];
+      const audio = new Audio(`/sounds/${sound.filename}`);
+      
+      // Fallback to default notification sound if custom sound fails
+      audio.onerror = () => {
+        console.warn(`Failed to load sound: ${sound.filename}, using default notification`);
+        if (this.audioContext) {
+          this.playDefaultBeep(volume);
+        }
+      };
+
+      audio.volume = Math.max(0, Math.min(1, volume));
+      audio.loop = false; // Don't loop for test sounds
+      
+      // Stop current alarm if playing
+      if (this.currentAlarm) {
+        this.currentAlarm.pause();
+        this.currentAlarm.currentTime = 0;
+      }
+      
+      this.currentAlarm = audio;
+      await audio.play();
+
+      // Stop alarm after 5 seconds for test sounds
+      setTimeout(() => {
+        if (this.currentAlarm === audio) {
+          audio.pause();
+          audio.currentTime = 0;
+          this.currentAlarm = null;
+        }
+      }, 5000);
+
+    } catch (error) {
+      console.error('Error playing test alarm sound:', error);
+      // Fallback to default beep
+      if (this.audioContext) {
+        this.playDefaultBeep(volume);
+      }
+    }
   }
 }
