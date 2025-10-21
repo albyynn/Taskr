@@ -262,7 +262,7 @@ export default function Home() {
     const newTask: Task = {
       ...taskData,
       alarmSound: taskData.alarmSound || settings.defaultAlarmSound,
-      alarmEnabled: taskData.alarmEnabled ?? true,
+      alarmEnabled: taskData.alarmEnabled ?? false,
       id: Date.now().toString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

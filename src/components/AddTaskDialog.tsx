@@ -41,7 +41,7 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask, default
   const [notificationSound, setNotificationSound] = useState(true);
   const [vibration, setVibration] = useState(true);
   const [enabled, setEnabled] = useState(true);
-  const [alarmEnabled, setAlarmEnabled] = useState(true);
+  const [alarmEnabled, setAlarmEnabled] = useState(false);
   const [alarmSound, setAlarmSound] = useState(defaultAlarmSound);
 
   useEffect(() => {
@@ -66,7 +66,7 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask, default
       setNotificationSound(true);
       setVibration(true);
       setEnabled(true);
-      setAlarmEnabled(true);
+      setAlarmEnabled(false);
       setAlarmSound(defaultAlarmSound);
     }
   }, [editingTask, open, defaultAlarmSound]);
