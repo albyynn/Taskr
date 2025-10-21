@@ -12,6 +12,8 @@ export interface Task {
   notes?: string;
   notificationSound: boolean;
   vibration: boolean;
+  alarmSound: string; // Sound file name for alarm
+  alarmEnabled: boolean; // Whether alarm should trigger at task time
   createdAt: string;
   updatedAt: string;
 }
@@ -22,4 +24,6 @@ export interface Settings {
   defaultVibration: boolean;
   darkMode: boolean;
   snoozeMinutes: number;
+  defaultAlarmSound: string;
+  alarmVolume: number; // 0-1
 }

@@ -1,10 +1,13 @@
 "use client";
 
 import { Settings } from '@/lib/types';
+import { ALARM_SOUNDS } from '@/lib/alarm-manager';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import { AlarmTestButton } from '@/components/AlarmTestButton';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -93,6 +96,50 @@ export function SettingsDialog({ open, onOpenChange, settings, onSettingsChange 
                 <SelectItem value="30">30 minutes</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="defaultAlarmSound" className="text-base">Default Alarm Sound</Label>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Select 
+                  value={settings.defaultAlarmSound} 
+                  onValueChange={(value) => updateSetting('defaultAlarmSound', value)}
+                >
+                  <SelectTrigger id="defaultAlarmSound">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ALARM_SOUNDS.map(sound => (
+                      <SelectItem key={sound.id} value={sound.id}>
+                        {sound.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <AlarmTestButton soundId={settings.defaultAlarmSound} volume={settings.alarmVolume} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="alarmVolume" className="text-base">Alarm Volume</Label>
+            <div className="px-3">
+              <Slider
+                id="alarmVolume"
+                min={0}
+                max={1}
+                step={0.1}
+                value={[settings.alarmVolume]}
+                onValueChange={(value) => updateSetting('alarmVolume', value[0])}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <span>Quiet</span>
+                <span>{Math.round(settings.alarmVolume * 100)}%</span>
+                <span>Loud</span>
+              </div>
+            </div>
           </div>
         </div>
       </DialogContent>

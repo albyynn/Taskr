@@ -12,6 +12,7 @@ import {
   playNotificationSound,
   checkMissedNotifications,
 } from '@/lib/notifications';
+import { AlarmManager } from '@/lib/alarm-manager';
 import { TaskItem } from '@/components/TaskItem';
 import { AddTaskDialog } from '@/components/AddTaskDialog';
 import { SettingsDialog } from '@/components/SettingsDialog';
@@ -38,6 +39,7 @@ export default function Home() {
   const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
+  const [alarmManager] = useState(() => AlarmManager.getInstance());
 
   // Check if we should show the permission dialog on load
   useEffect(() => {
@@ -86,12 +88,13 @@ export default function Home() {
     }
   }, [settings.darkMode]);
 
-  // Schedule notifications
+  // Schedule notifications and alarms
   useEffect(() => {
     if (settings.notificationsEnabled && hasNotificationPermission) {
       scheduleAllNotifications(tasks);
+      alarmManager.scheduleAlarms(tasks, settings);
     }
-  }, [tasks, settings.notificationsEnabled, hasNotificationPermission]);
+  }, [tasks, settings.notificationsEnabled, settings, hasNotificationPermission, alarmManager]);
 
   // Periodic notification check
   useEffect(() => {
@@ -152,7 +155,6 @@ export default function Home() {
           badge: '/icon-192.png',
           tag: task.id,
           requireInteraction: true,
-          vibrate: task.vibration ? [200, 100, 200, 100, 200] : undefined,
           silent: !task.notificationSound,
           data: { taskId: task.id, url: window.location.origin },
         });
@@ -183,6 +185,14 @@ export default function Home() {
 
     return () => clearInterval(checkMidnight);
   }, [tasks]);
+
+  // Cleanup alarms on unmount
+  useEffect(() => {
+    return () => {
+      alarmManager.clearAllAlarms();
+      alarmManager.stopCurrentAlarm();
+    };
+  }, [alarmManager]);
 
   const handleRequestNotification = async () => {
     if (isRequesting) return;
@@ -251,6 +261,8 @@ export default function Home() {
   const handleAddTask = (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
     const newTask: Task = {
       ...taskData,
+      alarmSound: taskData.alarmSound || settings.defaultAlarmSound,
+      alarmEnabled: taskData.alarmEnabled ?? true,
       id: Date.now().toString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -328,7 +340,7 @@ export default function Home() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-foreground">Daily Reminder</h1>
-              <p className="text-sm text-muted-foreground">Stay on track with your routines</p>
+              <p className="text-sm text-muted-foreground">Ponnu stay on track with your routines</p>
             </div>
             <Button
               variant="outline"
@@ -429,6 +441,7 @@ export default function Home() {
         onOpenChange={handleDialogClose}
         onSave={editingTask ? handleEditTask : handleAddTask}
         editingTask={editingTask}
+        defaultAlarmSound={settings.defaultAlarmSound}
       />
 
       <SettingsDialog

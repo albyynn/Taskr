@@ -33,6 +33,8 @@ export const storage = {
         defaultVibration: true,
         darkMode: false,
         snoozeMinutes: 5,
+        defaultAlarmSound: 'alarm-1',
+        alarmVolume: 0.8,
       };
     }
     try {
@@ -43,6 +45,8 @@ export const storage = {
         defaultVibration: true,
         darkMode: false,
         snoozeMinutes: 5,
+        defaultAlarmSound: 'alarm-1',
+        alarmVolume: 0.8,
       };
     } catch (error) {
       console.error('Error reading settings:', error);
@@ -52,6 +56,8 @@ export const storage = {
         defaultVibration: true,
         darkMode: false,
         snoozeMinutes: 5,
+        defaultAlarmSound: 'alarm-1',
+        alarmVolume: 0.8,
       };
     }
   },

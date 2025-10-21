@@ -1,10 +1,11 @@
 "use client";
 
 import { Task } from '@/lib/types';
+import { ALARM_SOUNDS } from '@/lib/alarm-manager';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
-import { Pencil, Trash2, Clock, Bell } from 'lucide-react';
+import { Pencil, Trash2, Clock, Bell, Volume2, VolumeX } from 'lucide-react';
 
 interface TaskItemProps {
   task: Task;
@@ -60,6 +61,20 @@ export function TaskItem({ task, onToggleComplete, onToggleEnabled, onEdit, onDe
               <Bell className="w-4 h-4" />
               <span>{getRecurrenceLabel()}</span>
             </div>
+            {task.alarmEnabled && (
+              <div className="flex items-center gap-1">
+                <Volume2 className="w-4 h-4" />
+                <span className="text-xs">
+                  {ALARM_SOUNDS.find(s => s.id === task.alarmSound)?.name || 'Unknown Sound'}
+                </span>
+              </div>
+            )}
+            {!task.alarmEnabled && (
+              <div className="flex items-center gap-1">
+                <VolumeX className="w-4 h-4" />
+                <span className="text-xs text-muted-foreground">No Alarm</span>
+              </div>
+            )}
           </div>
           
           {task.notes && (

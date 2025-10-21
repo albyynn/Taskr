@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Task, RecurrenceType } from '@/lib/types';
+import { ALARM_SOUNDS } from '@/lib/alarm-manager';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,12 +11,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
+import { Slider } from '@/components/ui/slider';
+import { AlarmTestButton } from '@/components/AlarmTestButton';
 
 interface AddTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void;
   editingTask?: Task | null;
+  defaultAlarmSound?: string;
 }
 
 const DAYS_OF_WEEK = [
@@ -28,7 +32,7 @@ const DAYS_OF_WEEK = [
   { label: 'Saturday', value: 6 },
 ];
 
-export function AddTaskDialog({ open, onOpenChange, onSave, editingTask }: AddTaskDialogProps) {
+export function AddTaskDialog({ open, onOpenChange, onSave, editingTask, defaultAlarmSound = 'alarm-1' }: AddTaskDialogProps) {
   const [title, setTitle] = useState('');
   const [time, setTime] = useState('09:00');
   const [recurrence, setRecurrence] = useState<RecurrenceType>('daily');
@@ -37,6 +41,8 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask }: AddTa
   const [notificationSound, setNotificationSound] = useState(true);
   const [vibration, setVibration] = useState(true);
   const [enabled, setEnabled] = useState(true);
+  const [alarmEnabled, setAlarmEnabled] = useState(true);
+  const [alarmSound, setAlarmSound] = useState(defaultAlarmSound);
 
   useEffect(() => {
     if (editingTask) {
@@ -48,6 +54,8 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask }: AddTa
       setNotificationSound(editingTask.notificationSound);
       setVibration(editingTask.vibration);
       setEnabled(editingTask.enabled);
+      setAlarmEnabled(editingTask.alarmEnabled);
+      setAlarmSound(editingTask.alarmSound);
     } else {
       // Reset form
       setTitle('');
@@ -58,8 +66,10 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask }: AddTa
       setNotificationSound(true);
       setVibration(true);
       setEnabled(true);
+      setAlarmEnabled(true);
+      setAlarmSound(defaultAlarmSound);
     }
-  }, [editingTask, open]);
+  }, [editingTask, open, defaultAlarmSound]);
 
   const handleSave = () => {
     if (!title.trim() || !time) return;
@@ -75,6 +85,8 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask }: AddTa
       notes: notes.trim() || undefined,
       notificationSound,
       vibration,
+      alarmSound,
+      alarmEnabled,
     });
 
     onOpenChange(false);
@@ -190,6 +202,56 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask }: AddTa
                 onCheckedChange={setEnabled}
               />
             </div>
+          </div>
+
+          <div className="space-y-4 pt-2 border-t">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="alarm-enabled" className="text-sm font-medium">Alarm</Label>
+                <p className="text-xs text-muted-foreground">Play alarm sound when task time is reached</p>
+              </div>
+              <Switch
+                id="alarm-enabled"
+                checked={alarmEnabled}
+                onCheckedChange={setAlarmEnabled}
+              />
+            </div>
+            
+            {alarmEnabled && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Choose Alarm Sound</Label>
+                <div className="grid grid-cols-1 gap-2">
+                  {ALARM_SOUNDS.map(sound => (
+                    <div
+                      key={sound.id}
+                      className={`flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
+                        alarmSound === sound.id 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-border hover:border-primary/50'
+                      }`}
+                      onClick={() => setAlarmSound(sound.id)}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                          alarmSound === sound.id 
+                            ? 'border-primary bg-primary' 
+                            : 'border-muted-foreground'
+                        }`}>
+                          {alarmSound === sound.id && (
+                            <div className="w-2 h-2 rounded-full bg-white"></div>
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium text-sm">{sound.name}</div>
+                          <div className="text-xs text-muted-foreground">{sound.filename}</div>
+                        </div>
+                      </div>
+                      <AlarmTestButton soundId={sound.id} volume={0.5} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
