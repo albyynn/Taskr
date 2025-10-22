@@ -13,6 +13,8 @@ import {
   checkMissedNotifications,
 } from '@/lib/notifications';
 import { AlarmManager } from '@/lib/alarm-manager';
+import { NativeNotificationManager } from '@/lib/native-notifications';
+import { NativeAlarmManager } from '@/lib/native-alarm-manager';
 import { TaskItem } from '@/components/TaskItem';
 import { AddTaskDialog } from '@/components/AddTaskDialog';
 import { SettingsDialog } from '@/components/SettingsDialog';
@@ -40,6 +42,18 @@ export default function Home() {
   const [isRequesting, setIsRequesting] = useState(false);
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [alarmManager] = useState(() => AlarmManager.getInstance());
+  const [nativeNotificationManager] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return NativeNotificationManager.getInstance();
+    }
+    return null;
+  });
+  const [nativeAlarmManager] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return NativeAlarmManager.getInstance();
+    }
+    return null;
+  });
 
   // Check if we should show the permission dialog on load
   useEffect(() => {
@@ -75,6 +89,11 @@ export default function Home() {
     // Check notification permission
     checkNotificationPermission().then(setHasNotificationPermission);
 
+    // Load custom sounds
+    if (nativeAlarmManager) {
+      nativeAlarmManager.loadCustomSounds();
+    }
+
     // Check for missed notifications on startup
     checkMissedNotifications(loadedTasks);
   }, []);
@@ -91,10 +110,15 @@ export default function Home() {
   // Schedule notifications and alarms
   useEffect(() => {
     if (settings.notificationsEnabled && hasNotificationPermission) {
-      scheduleAllNotifications(tasks);
-      alarmManager.scheduleAlarms(tasks, settings);
+      // Use native notifications for mobile, web notifications for PWA
+      if (typeof window !== 'undefined' && 'capacitor' in window && nativeNotificationManager) {
+        nativeNotificationManager.scheduleNotifications(tasks, settings);
+      } else {
+        scheduleAllNotifications(tasks);
+        alarmManager.scheduleAlarms(tasks, settings);
+      }
     }
-  }, [tasks, settings.notificationsEnabled, settings, hasNotificationPermission, alarmManager]);
+  }, [tasks, settings.notificationsEnabled, settings, hasNotificationPermission, alarmManager, nativeNotificationManager]);
 
   // Periodic notification check
   useEffect(() => {

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Daily Reminder</string>
+    <string name="title_activity_main">Daily Reminder</string>
+    <string name="package_name">com.dailyreminder.app</string>
+    <string name="custom_url_scheme">com.dailyreminder.app</string>
+</resources>

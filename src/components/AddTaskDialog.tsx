@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Task, RecurrenceType } from '@/lib/types';
 import { ALARM_SOUNDS } from '@/lib/alarm-manager';
+import { NativeAlarmManager, CustomAlarmSound } from '@/lib/native-alarm-manager';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { AlarmTestButton } from '@/components/AlarmTestButton';
+import { CustomSoundUpload } from '@/components/CustomSoundUpload';
 
 interface AddTaskDialogProps {
   open: boolean;
@@ -43,6 +45,14 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask, default
   const [enabled, setEnabled] = useState(true);
   const [alarmEnabled, setAlarmEnabled] = useState(false);
   const [alarmSound, setAlarmSound] = useState(defaultAlarmSound);
+  const [showCustomSoundUpload, setShowCustomSoundUpload] = useState(false);
+  const [availableSounds, setAvailableSounds] = useState<CustomAlarmSound[]>([]);
+  const [nativeAlarmManager] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return NativeAlarmManager.getInstance();
+    }
+    return null;
+  });
 
   useEffect(() => {
     if (editingTask) {
@@ -70,6 +80,18 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask, default
       setAlarmSound(defaultAlarmSound);
     }
   }, [editingTask, open, defaultAlarmSound]);
+
+  // Load available sounds when component mounts
+  useEffect(() => {
+    const loadSounds = async () => {
+      if (nativeAlarmManager) {
+        await nativeAlarmManager.loadCustomSounds();
+        const sounds = nativeAlarmManager.getAvailableSounds();
+        setAvailableSounds(sounds);
+      }
+    };
+    loadSounds();
+  }, [nativeAlarmManager]);
 
   const handleSave = () => {
     if (!title.trim() || !time) return;
@@ -219,9 +241,19 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask, default
             
             {alarmEnabled && (
               <div className="space-y-3">
-                <Label className="text-sm font-medium">Choose Alarm Sound</Label>
-                <div className="grid grid-cols-1 gap-2">
-                  {ALARM_SOUNDS.map(sound => (
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Choose Alarm Sound</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowCustomSoundUpload(true)}
+                    className="text-xs"
+                  >
+                    Upload Custom
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto">
+                  {availableSounds.map(sound => (
                     <div
                       key={sound.id}
                       className={`flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
@@ -243,7 +275,9 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask, default
                         </div>
                         <div>
                           <div className="font-medium text-sm">{sound.name}</div>
-                          <div className="text-xs text-muted-foreground">{sound.filename}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {sound.isCustom ? 'Custom Sound' : sound.filename}
+                          </div>
                         </div>
                       </div>
                       <AlarmTestButton soundId={sound.id} volume={0.5} />
@@ -264,6 +298,16 @@ export function AddTaskDialog({ open, onOpenChange, onSave, editingTask, default
           </Button>
         </div>
       </DialogContent>
+
+      {/* Custom Sound Upload Dialog */}
+      <CustomSoundUpload
+        open={showCustomSoundUpload}
+        onOpenChange={setShowCustomSoundUpload}
+        onSoundAdded={(sound) => {
+          setAvailableSounds(prev => [...prev, sound]);
+          setAlarmSound(sound.id);
+        }}
+      />
     </Dialog>
   );
 }

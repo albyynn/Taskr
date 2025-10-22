@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { AlarmManager } from '@/lib/alarm-manager';
+import { NativeAlarmManager } from '@/lib/native-alarm-manager';
 import { Volume2, VolumeX, Play } from 'lucide-react';
 
 interface AlarmTestButtonProps {
@@ -13,20 +14,37 @@ interface AlarmTestButtonProps {
 export function AlarmTestButton({ soundId, volume }: AlarmTestButtonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const alarmManager = AlarmManager.getInstance();
+  const [nativeAlarmManager] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return NativeAlarmManager.getInstance();
+    }
+    return null;
+  });
 
   const handleTestAlarm = async () => {
     if (isPlaying) {
       // Stop the current alarm
       alarmManager.stopCurrentAlarm();
+      if (nativeAlarmManager) {
+        nativeAlarmManager.stopCurrentAlarm();
+      }
       setIsPlaying(false);
     } else {
       // Stop any currently playing alarm first
       alarmManager.stopCurrentAlarm();
+      if (nativeAlarmManager) {
+        nativeAlarmManager.stopCurrentAlarm();
+      }
       
       setIsPlaying(true);
       
       try {
-        await alarmManager.testAlarmSound(soundId, volume);
+        // Use native alarm manager for better sound support
+        if (nativeAlarmManager) {
+          await nativeAlarmManager.testAlarmSound(soundId, volume);
+        } else {
+          await alarmManager.testAlarmSound(soundId, volume);
+        }
         
         // Auto-stop after 5 seconds for test sounds
         setTimeout(() => {
@@ -45,9 +63,12 @@ export function AlarmTestButton({ soundId, volume }: AlarmTestButtonProps) {
     return () => {
       if (isPlaying) {
         alarmManager.stopCurrentAlarm();
+        if (nativeAlarmManager) {
+          nativeAlarmManager.stopCurrentAlarm();
+        }
       }
     };
-  }, [isPlaying, alarmManager]);
+  }, [isPlaying, alarmManager, nativeAlarmManager]);
 
   return (
     <Button
